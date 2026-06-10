@@ -86,8 +86,24 @@ function renderTemplate(tpl, lead) {
   return out;
 }
 
+// named template variants: "default" is the main template, extras live in settings.copy_templates
+function allTemplates() {
+  return [{ name: "default", text: state.settings.copy_template }, ...(state.settings.copy_templates || [])];
+}
+function templateText(name) {
+  const t = allTemplates().find((t) => t.name === name);
+  return t ? t.text : state.settings.copy_template;
+}
+function selectedTemplate(leadId) {
+  const sel = $(`select[data-tpl-for="${leadId}"]`);
+  if (sel) return sel.value;
+  const lead = findLead(leadId);
+  return (lead && lead.template_used) || "default";
+}
+
 async function copyOutreach(lead) {
-  const text = renderTemplate(state.settings.copy_template, lead);
+  const tplName = selectedTemplate(lead.id);
+  const text = renderTemplate(templateText(tplName), lead);
   try {
     await navigator.clipboard.writeText(text);
   } catch {
@@ -99,6 +115,20 @@ async function copyOutreach(lead) {
     ta.remove();
   }
   toast(`Copied outreach for ${lead.brand}`);
+  // remember which variant was used so Stats can compare reply rates
+  if (tplName !== (lead.template_used || "default")) {
+    api(`/api/leads/${lead.id}`, { method: "PATCH", body: { template_used: tplName } }).catch(() => {});
+  }
+}
+
+function emailOutreach(lead) {
+  const text = renderTemplate(templateText(selectedTemplate(lead.id)), lead);
+  const subject = `Competitor price moves in ${lead.vertical}`;
+  location.href = `mailto:${encodeURIComponent(lead.contact.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+}
+
+function isEmail(s) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
 }
 
 // ---------- queue (the product) ----------
@@ -106,8 +136,16 @@ function buildQueue() {
   const { leads, settings, today } = state;
   const ripeCutoff = addDays(today, -3);
 
+  // hot: replies waiting on you + open trials — closest to money, always on top
+  const tier0 = [
+    ...leads.filter((l) => l.status === "replied")
+      .sort((a, b) => String(a.replied_at || "").localeCompare(String(b.replied_at || ""))),
+    ...leads.filter((l) => l.status === "trial")
+      .sort((a, b) => String(a.trial_started_at || "").localeCompare(String(b.trial_started_at || ""))),
+  ];
+
   const tier1 = leads
-    .filter((l) => ["sent", "follow_up_1"].includes(l.status) && l.follow_up_due_at && l.follow_up_due_at <= today)
+    .filter((l) => ["sent", "follow_up_1", "follow_up_2"].includes(l.status) && l.follow_up_due_at && l.follow_up_due_at <= today)
     .sort((a, b) => a.follow_up_due_at.localeCompare(b.follow_up_due_at));
 
   const tier2 = leads
@@ -122,7 +160,7 @@ function buildQueue() {
     )
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
 
-  return { tier1, tier2, tier3 };
+  return { tier0, tier1, tier2, tier3 };
 }
 
 function compsHTML(lead) {
@@ -135,36 +173,85 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+function daysBetween(a, b) {
+  return Math.round((toDate(b) - toDate(a)) / 86400000);
+}
+
+function tplPickerHTML(lead) {
+  const templates = allTemplates();
+  if (templates.length < 2) return "";
+  const current = lead.template_used && templates.some((t) => t.name === lead.template_used) ? lead.template_used : "default";
+  return `<select class="input select tpl-select" data-tpl-for="${lead.id}" title="copy template variant">
+    ${templates.map((t) => `<option value="${esc(t.name)}" ${t.name === current ? "selected" : ""}>${esc(t.name)}</option>`).join("")}
+  </select>`;
+}
+
 function leadCardHTML(lead, tier) {
   const today = state.today;
   const overdue = tier === 1 && lead.follow_up_due_at < today;
-  let meta = "";
-  if (tier === 1) {
-    const which = lead.status === "sent" ? "follow-up 1" : "follow-up 2";
-    meta = `<span class="lead-due">${which} ${overdue ? "OVERDUE — was due " + fmtDate(lead.follow_up_due_at) : "due today"}</span>`;
-  } else if (tier === 2) {
-    const days = Math.round((toDate(today) - toDate(lead.monitoring_started_at)) / 86400000);
-    meta = `<span class="lead-due" style="color:var(--beacon)">monitoring ${days}d — demo data ready</span>`;
+  let meta = "", buttons = "";
+  const id = lead.id;
+
+  if (tier === 0) {
+    if (lead.status === "replied") {
+      const days = lead.replied_at ? daysBetween(lead.replied_at, today) : 0;
+      const ago = days <= 0 ? "today" : `${days}d ago`;
+      meta = `<span class="lead-due">replied ${ago}${lead.reply_sentiment ? " · " + esc(lead.reply_sentiment) : ""} — respond / book the demo</span>`;
+      buttons = `
+        <button class="btn btn-primary" data-act="start_trial" data-id="${id}">→ Start trial</button>
+        <button class="btn" data-act="won" data-id="${id}">✓ Mark won</button>
+        <button class="btn btn-ghost" data-act="dead" data-id="${id}">✗ Dead</button>`;
+    } else {
+      const day = lead.trial_started_at ? daysBetween(lead.trial_started_at, today) + 1 : null;
+      meta = `<span class="lead-due">${day ? `trial day ${day}` : "on trial"} — check in / ask for the close</span>`;
+      buttons = `
+        <button class="btn btn-primary" data-act="won" data-id="${id}">✓ Mark won</button>
+        <button class="btn btn-ghost" data-act="dead" data-id="${id}">✗ Mark dead</button>`;
+    }
+  } else if (tier === 1) {
+    if (lead.status === "follow_up_2" && lead.breakup_sent_at) {
+      const days = daysBetween(lead.breakup_sent_at, today);
+      meta = `<span class="lead-due">no reply ${days}d after breakup — call it</span>`;
+      buttons = `
+        <button class="btn btn-primary" data-act="dead" data-id="${id}">✗ Mark dead</button>
+        <button class="btn" data-act="reply" data-id="${id}">↩ Log reply</button>`;
+    } else {
+      const which = lead.status === "sent" ? "follow-up 1" : lead.status === "follow_up_1" ? "follow-up 2" : "breakup email";
+      meta = `<span class="lead-due">${which} ${overdue ? "OVERDUE — was due " + fmtDate(lead.follow_up_due_at) : "due today"}</span>`;
+      const label = lead.status === "follow_up_2" ? "✓ Sent breakup" : "✓ Complete follow-up";
+      buttons = `
+        <button class="btn btn-primary" data-act="follow_up" data-id="${id}">${label}</button>
+        <button class="btn" data-act="reply" data-id="${id}">↩ Log reply</button>`;
+    }
+  } else {
+    if (tier === 2) {
+      const days = daysBetween(lead.monitoring_started_at, today);
+      meta = `<span class="lead-due" style="color:var(--beacon)">monitoring ${days}d — demo data ready</span>`;
+    }
+    buttons = `<button class="btn btn-primary" data-act="sent" data-id="${id}">→ Mark sent</button>`;
   }
+
   const pain = String(lead.pain_signal || "").trim();
-  const primaryBtn =
-    tier === 1
-      ? `<button class="btn btn-primary" data-act="follow_up" data-id="${lead.id}">✓ Complete follow-up</button>`
-      : `<button class="btn btn-primary" data-act="sent" data-id="${lead.id}">→ Mark sent</button>`;
-  const replyBtn = tier === 1 ? `<button class="btn" data-act="reply" data-id="${lead.id}">↩ Log reply</button>` : "";
+  const reply = String(lead.reply || "").trim();
+  const note = tier === 0 && reply
+    ? `<div class="lead-pain">“${esc(reply)}”</div>`
+    : `<div class="lead-pain ${pain ? "" : "empty"}">${pain ? esc(pain) : "no pain signal yet — click brand to enrich"}</div>`;
+  const emailBtn = isEmail(lead.contact)
+    ? `<button class="btn btn-ghost" data-act="email" data-id="${id}">✉ Email</button>` : "";
   return `
   <div class="lead-card ${overdue ? "overdue" : ""}">
     <div class="lead-top">
-      <span class="lead-brand" data-edit="${lead.id}">${esc(lead.brand)}</span>
+      <span class="lead-brand" data-edit="${id}">${esc(lead.brand)}</span>
       <span class="lead-vertical">${esc(lead.vertical)}</span>
       ${meta}
     </div>
-    <div class="lead-pain ${pain ? "" : "empty"}">${pain ? esc(pain) : "no pain signal yet — click brand to enrich"}</div>
+    ${note}
     ${compsHTML(lead)}
     <div class="lead-actions">
-      ${primaryBtn}
-      ${replyBtn}
-      <button class="btn btn-ghost btn-copy" data-act="copy" data-id="${lead.id}">⧉ Copy outreach</button>
+      ${buttons}
+      ${tplPickerHTML(lead)}
+      <button class="btn btn-ghost btn-copy" data-act="copy" data-id="${id}">⧉ Copy outreach</button>
+      ${emailBtn}
     </div>
   </div>`;
 }
@@ -175,14 +262,15 @@ function toDate(iso) {
 }
 
 function renderQueue() {
-  const { tier1, tier2, tier3 } = buildQueue();
+  const { tier0, tier1, tier2, tier3 } = buildQueue();
   const root = $("#queue");
   const tiers = [
-    { n: 1, title: "Follow-ups due", items: tier1, empty: "No follow-ups due. The inbox owes you nothing." },
-    { n: 2, title: "Monitoring ripe — enough demo data, reach out", items: tier2, empty: "Nothing ripe yet. Beacons still gathering." },
-    { n: 3, title: state.settings.vertical_focus ? `Fresh leads · ${esc(state.settings.vertical_focus)}` : "Fresh leads · all verticals", items: tier3, empty: "No fresh leads with a pain signal. Add some or enrich what's in the pipeline." },
+    { n: "★", cls: 0, title: "Hot — replies & trials, close these first", items: tier0 },
+    { n: 1, cls: 1, title: "Follow-ups due", items: tier1, empty: "No follow-ups due. The inbox owes you nothing." },
+    { n: 2, cls: 2, title: "Monitoring ripe — enough demo data, reach out", items: tier2, empty: "Nothing ripe yet. Beacons still gathering." },
+    { n: 3, cls: 3, title: state.settings.vertical_focus ? `Fresh leads · ${esc(state.settings.vertical_focus)}` : "Fresh leads · all verticals", items: tier3, empty: "No fresh leads with a pain signal. Add some or enrich what's in the pipeline." },
   ];
-  const total = tier1.length + tier2.length + tier3.length;
+  const total = tier0.length + tier1.length + tier2.length + tier3.length;
   if (!total) {
     root.innerHTML = `<div class="queue-empty">
       <div class="big">Queue clear.</div>
@@ -193,11 +281,11 @@ function renderQueue() {
   root.innerHTML = tiers
     .map((t) => {
       if (!t.items.length) return "";
-      return `<div class="tier tier-${t.n}">
+      return `<div class="tier tier-${t.cls}">
         <div class="tier-rail"><div class="tier-num">${t.n}</div><div class="tier-line"></div></div>
         <div class="tier-body">
           <div class="tier-title">${t.title} <span class="count">· ${t.items.length}</span></div>
-          ${t.items.map((l) => leadCardHTML(l, t.n)).join("")}
+          ${t.items.map((l) => leadCardHTML(l, t.cls)).join("")}
         </div>
       </div>`;
     })
@@ -220,6 +308,9 @@ function renderDash() {
 
   $("#streak-count").textContent = state.streak;
   $("#streak-flames").textContent = state.streak > 0 ? "▮".repeat(Math.min(state.streak, 30)) : "—";
+  const weekAgo = addDays(state.today, -6);
+  const repliesWeek = state.leads.filter((l) => l.replied_at && l.replied_at >= weekAgo).length;
+  $("#streak-foot").textContent = `consecutive days at target · ${repliesWeek} repl${repliesWeek === 1 ? "y" : "ies"} this week`;
 
   $("#mrr-current").textContent = Math.round(state.mrr);
   $("#mrr-goal").textContent = s.mrr_goal;
@@ -229,6 +320,31 @@ function renderDash() {
     state.mrr >= s.mrr_goal ? "GOAL HIT. Raise the goal." : `$${Math.max(0, s.mrr_goal - state.mrr).toFixed(0)} to go`;
 
   $("#focus-value").textContent = s.vertical_focus || "all verticals";
+  $("#pace-line").textContent = paceLine();
+}
+
+// pace to goal, from actual win rate: "N wins ≈ M sends ≈ hit goal by <date>"
+function paceLine() {
+  const s = state.settings;
+  const leads = state.leads;
+  const remaining = Math.max(0, s.mrr_goal - state.mrr);
+  if (!remaining) return "Goal hit — raise it in Settings and keep climbing.";
+  const won = leads.filter((l) => l.status === "won");
+  const dealValues = won.map((l) => (l.deal_value_mo != null ? Number(l.deal_value_mo) : s.price_mo)).filter((v) => v > 0);
+  const avgDeal = dealValues.length
+    ? dealValues.reduce((a, b) => a + b, 0) / dealValues.length
+    : s.price_mo;
+  if (!avgDeal) return "Set your price in Settings to see the pace to goal.";
+  const needWins = Math.ceil(remaining / avgDeal);
+  const sends = leads.filter((l) => l.sent_at).length;
+  if (!won.length || !sends) {
+    return `$${remaining.toFixed(0)} to go ≈ ${needWins} win${needWins === 1 ? "" : "s"} at $${Math.round(avgDeal)}/mo. No win-rate data yet — every send sharpens the forecast.`;
+  }
+  const sendsPerWin = sends / won.length;
+  const needSends = Math.ceil(needWins * sendsPerWin);
+  const days = Math.max(1, Math.ceil(needSends / s.daily_target));
+  const eta = addDays(state.today, days);
+  return `$${remaining.toFixed(0)} to go ≈ ${needWins} win${needWins === 1 ? "" : "s"} ≈ ${needSends} sends at your 1-in-${Math.round(sendsPerWin)} win rate — on pace for ${fmtDate(eta)} at ${s.daily_target}/day.`;
 }
 
 // ---------- pipeline ----------
@@ -284,11 +400,46 @@ function renderVerticalOptions() {
 }
 
 // ---------- stats ----------
+// stage checks tolerate manual status edits: a dead lead that replied still counts as a reply
+function didReply(l) {
+  return !!l.replied_at || ["replied", "trial", "won"].includes(l.status);
+}
+function didTrial(l) {
+  return !!l.trial_started_at || ["trial", "won"].includes(l.status);
+}
+
+// funnel counts grouped by a lead attribute, sent leads only, sorted by send volume
+function funnelBy(leads, keyFn) {
+  const groups = {};
+  for (const l of leads) {
+    if (!l.sent_at) continue;
+    const k = keyFn(l) || "—";
+    const g = (groups[k] ??= { sends: 0, replies: 0, trials: 0, wins: 0 });
+    g.sends++;
+    if (didReply(l)) g.replies++;
+    if (didTrial(l)) g.trials++;
+    if (l.status === "won") g.wins++;
+  }
+  return Object.entries(groups).sort((a, b) => b[1].sends - a[1].sends);
+}
+
+function funnelRowsHTML(rows, emptyMsg, cols) {
+  if (!rows.length) return `<tr><td colspan="${cols}" class="td-dim">${emptyMsg}</td></tr>`;
+  const full = cols > 4;
+  return rows.map(([key, g]) => `<tr>
+      <td>${esc(key)}</td>
+      <td class="num">${g.sends}</td>
+      <td class="num">${g.replies}</td>
+      <td class="num">${Math.round((g.replies / g.sends) * 100)}%</td>
+      ${full ? `<td class="num">${g.trials}</td><td class="num">${g.wins}</td>` : ""}
+    </tr>`).join("");
+}
+
 function renderStats() {
   const leads = state.leads;
   const sends = leads.filter((l) => l.sent_at).length;
   const replies = leads.filter((l) => l.replied_at).length;
-  const trials = leads.filter((l) => ["trial", "won"].includes(l.status)).length;
+  const trials = leads.filter(didTrial).length;
   const wins = leads.filter((l) => l.status === "won").length;
   const rate = sends ? Math.round((replies / sends) * 100) : 0;
 
@@ -314,23 +465,15 @@ function renderStats() {
       <div class="funnel-count">${f.v}</div>
     </div>`).join("");
 
-  const byVertical = {};
-  for (const l of leads) {
-    if (!byVertical[l.vertical]) byVertical[l.vertical] = { sends: 0, replies: 0 };
-    if (l.sent_at) byVertical[l.vertical].sends++;
-    if (l.replied_at) byVertical[l.vertical].replies++;
-  }
-  const rows = Object.entries(byVertical)
-    .filter(([, v]) => v.sends > 0)
-    .sort((a, b) => b[1].sends - a[1].sends);
-  $("#vertical-table tbody").innerHTML = rows.length
-    ? rows.map(([vert, v]) => `<tr>
-        <td>${esc(vert)}</td>
-        <td class="num">${v.sends}</td>
-        <td class="num">${v.replies}</td>
-        <td class="num">${v.sends ? Math.round((v.replies / v.sends) * 100) : 0}%</td>
-      </tr>`).join("")
-    : `<tr><td colspan="4" class="td-dim">No sends yet — reply rates appear once you start sending.</td></tr>`;
+  $("#vertical-table tbody").innerHTML = funnelRowsHTML(
+    funnelBy(leads, (l) => l.vertical),
+    "No sends yet — funnel by vertical appears once you start sending.", 6);
+  $("#source-table tbody").innerHTML = funnelRowsHTML(
+    funnelBy(leads, (l) => l.source),
+    "No sends yet — funnel by source appears once you start sending.", 6);
+  $("#template-table tbody").innerHTML = funnelRowsHTML(
+    funnelBy(leads, (l) => l.template_used || "default"),
+    "No sends yet — add template variants in Settings and compare reply rates here.", 4);
 }
 
 // ---------- settings ----------
@@ -343,7 +486,33 @@ function renderSettings() {
   $("#set-price").value = s.price_mo ?? "";
   $("#set-mrr-goal").value = s.mrr_goal;
   $("#set-template").value = s.copy_template;
+  renderTemplateRows(s.copy_templates);
   renderPresetRows(s.competitor_presets);
+}
+
+function renderTemplateRows(templates) {
+  $("#tpl-rows").innerHTML = (templates || []).map((t) => tplRowHTML(t.name, t.text)).join("");
+}
+function tplRowHTML(name = "", text = "") {
+  return `<div class="tpl-row">
+    <div class="tpl-row-head">
+      <input class="input t-name" placeholder="variant name (e.g. blunt)" value="${esc(name)}">
+      <button type="button" class="btn btn-ghost t-remove" title="remove">✕</button>
+    </div>
+    <textarea class="input textarea t-text" rows="4" spellcheck="false" placeholder="Alternate outreach copy — same placeholders as the main template.">${esc(text)}</textarea>
+  </div>`;
+}
+function collectTemplates() {
+  const out = [];
+  const seen = new Set(["default"]);
+  for (const row of $$(".tpl-row")) {
+    const name = $(".t-name", row).value.trim();
+    const text = $(".t-text", row).value;
+    if (!name || !text.trim() || seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, text });
+  }
+  return out;
 }
 
 function renderPresetRows(presets) {
@@ -380,6 +549,7 @@ async function saveSettings() {
         price_mo: $("#set-price").value,
         mrr_goal: $("#set-mrr-goal").value || "300",
         copy_template: $("#set-template").value,
+        copy_templates: collectTemplates(),
         competitor_presets: collectPresets(),
       },
     });
@@ -422,7 +592,7 @@ async function submitLeadForm(e) {
   const body = {};
   for (const el of form.elements) {
     if (!el.name) continue;
-    if (!editingId && ["status", "monitoring_started_at", "sent_at", "follow_up_due_at", "replied_at", "reply", "reply_sentiment"].includes(el.name)) continue;
+    if (!editingId && ["status", "monitoring_started_at", "sent_at", "follow_up_due_at", "replied_at", "trial_started_at", "reply", "reply_sentiment"].includes(el.name)) continue;
     body[el.name] = el.value;
   }
   try {
@@ -480,8 +650,13 @@ async function submitReply(e) {
 // ---------- transitions ----------
 async function doTransition(id, action) {
   try {
-    await api(`/api/leads/${id}/transition`, { method: "POST", body: { action } });
-    const verb = action === "sent" ? "Marked sent — follow-up queued in 3 days" : "Follow-up logged";
+    const wasFu2 = findLead(id)?.status === "follow_up_2";
+    const body = { action };
+    if (action === "sent") body.template = selectedTemplate(id);
+    await api(`/api/leads/${id}/transition`, { method: "POST", body });
+    const verb = action === "sent"
+      ? "Marked sent — follow-up queued in 3 days"
+      : wasFu2 ? "Breakup sent — if no reply in 5 days, call it" : "Follow-up logged";
     toast(verb);
     renderAll();
   } catch (err) {
@@ -511,7 +686,7 @@ async function submitImport(e) {
     const res = await api("/api/import", { method: "POST", body: { csv } });
     $("#import-modal").close();
     $("#import-form").reset();
-    toast(`Imported ${res.imported} lead${res.imported === 1 ? "" : "s"}${res.skipped ? ` · skipped ${res.skipped}` : ""}`);
+    toast(`Imported ${res.imported} lead${res.imported === 1 ? "" : "s"}${res.duplicates ? ` · ${res.duplicates} duplicate${res.duplicates === 1 ? "" : "s"} skipped` : ""}${res.skipped ? ` · ${res.skipped} bad row${res.skipped === 1 ? "" : "s"}` : ""}`);
     renderAll();
   } catch (err) {
     toast(err.message, true);
@@ -550,7 +725,10 @@ document.addEventListener("click", (e) => {
     if (!lead) return;
     const act = actBtn.dataset.act;
     if (act === "copy") copyOutreach(lead);
+    else if (act === "email") emailOutreach(lead);
     else if (act === "reply") openReplyModal(lead);
+    else if (act === "start_trial") changeStatus(lead.id, "trial");
+    else if (act === "won" || act === "dead") changeStatus(lead.id, act);
     else doTransition(lead.id, act);
     return;
   }
@@ -562,6 +740,9 @@ document.addEventListener("click", (e) => {
   }
   if (e.target.closest(".p-remove")) {
     e.target.closest(".preset-row").remove();
+  }
+  if (e.target.closest(".t-remove")) {
+    e.target.closest(".tpl-row").remove();
   }
 });
 
@@ -602,6 +783,9 @@ function init() {
   });
   $("#btn-add-preset").addEventListener("click", () => {
     $("#presets-rows").insertAdjacentHTML("beforeend", presetRowHTML());
+  });
+  $("#btn-add-template").addEventListener("click", () => {
+    $("#tpl-rows").insertAdjacentHTML("beforeend", tplRowHTML());
   });
   $("#pipeline-vertical-filter").addEventListener("change", renderPipeline);
 
