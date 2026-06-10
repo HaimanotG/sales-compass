@@ -20,7 +20,7 @@ Single-user, no-auth sales outreach companion ("Sales Compass") for Beaconmon. T
 The same API code runs in two environments, which is the key constraint to preserve:
 
 - **Local:** `server.js` is a Bun server that serves `public/` and routes everything else to `handleApi`.
-- **Vercel:** static files come from `public/`, every `/api/*` request hits the catch-all function `api/[...path].js`, and `middleware.js` (Edge Middleware) adds Basic-auth when `APP_PASSWORD` is set. No build step (`vercel.json` sets an empty buildCommand).
+- **Vercel:** static files come from `public/`, every `/api/*` request is rewritten (in `vercel.json`) to the single function `api/index.js`, which receives the original URL, and `middleware.js` (Edge Middleware) adds Basic-auth when `APP_PASSWORD` is set. No build step (`vercel.json` sets an empty buildCommand).
 
 Both entry points delegate to **`lib/app.js`**, which contains all API logic: the router (`handleApi`, web-standard Request → Response), validation, status-transition automation, CSV import, streak computation, and the `statePayload` builder. Keep new API logic here, not in the entry points, so it works in both environments.
 

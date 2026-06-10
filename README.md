@@ -21,7 +21,7 @@ The data layer is libSQL (`@libsql/client`):
 
 ## Deploy to Vercel
 
-The repo is Vercel-ready with no build step: static frontend in `public/`, the API as a catch-all function in `api/[...path].js`, and a password gate in `middleware.js`.
+The repo is Vercel-ready with no build step: static frontend in `public/`, the API as a single function in `api/index.js` (all `/api/*` requests are rewritten to it via `vercel.json`), and a password gate in `middleware.js`.
 
 1. Create the database: [turso.tech](https://turso.tech) → create a DB → copy its URL and create an auth token (`turso db tokens create <db>`).
 2. Push this repo to GitHub and import it on [vercel.com](https://vercel.com/new) (framework preset: **Other**).

@@ -1,5 +1,5 @@
 // Sales Compass — local dev server. Run: bun server.js  (http://localhost:4848)
-// On Vercel, static files come from public/ and the API runs via api/[...path].js.
+// On Vercel, static files come from public/ and the API runs via api/index.js.
 import { handleApi } from "./lib/app.js";
 
 const PUBLIC = new URL("./public/", import.meta.url).pathname;
