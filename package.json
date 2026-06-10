@@ -1,0 +1,13 @@
+{
+  "name": "sales-compass",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Single-user sales companion for Beaconmon outreach — daily queue, pipeline, stats.",
+  "scripts": {
+    "start": "bun server.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.17.3"
+  }
+}

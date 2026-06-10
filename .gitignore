@@ -1,0 +1,7 @@
+node_modules/
+compass.db
+compass.db-*
+.vercel/
+.playwright-mcp/
+*.log
+.DS_Store

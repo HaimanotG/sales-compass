@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sales Compass · Beaconmon outreach</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='42' fill='%23ffb224'/><circle cx='50' cy='50' r='18' fill='%230d1318'/></svg>">
+</head>
+<body>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand-lockup">
+    <span class="beacon-dot" aria-hidden="true"></span>
+    <h1>Sales<em>Compass</em></h1>
+    <span class="brand-sub">beaconmon outreach console</span>
+  </div>
+  <nav class="tabs" id="nav">
+    <a href="#today" data-screen="today">Today</a>
+    <a href="#pipeline" data-screen="pipeline">Pipeline</a>
+    <a href="#stats" data-screen="stats">Stats</a>
+    <a href="#settings" data-screen="settings">Settings</a>
+  </nav>
+  <div class="topbar-date mono" id="topbar-date"></div>
+</header>
+
+<main id="main">
+  <!-- ============ TODAY ============ -->
+  <section class="screen" id="screen-today">
+    <div class="dash">
+      <div class="dash-card dash-target">
+        <div class="dash-label">Daily actions</div>
+        <div class="dash-big"><span id="actions-count">0</span><span class="dash-of">/ <span id="actions-target">10</span></span></div>
+        <div class="bar"><div class="bar-fill" id="target-bar"></div></div>
+        <div class="dash-foot" id="target-foot"></div>
+      </div>
+      <div class="dash-card dash-streak">
+        <div class="dash-label">Streak</div>
+        <div class="dash-big"><span id="streak-count">0</span><span class="dash-of">days</span></div>
+        <div class="streak-flames mono" id="streak-flames"></div>
+        <div class="dash-foot">consecutive days at target</div>
+      </div>
+      <div class="dash-card dash-mrr">
+        <div class="dash-label">MRR</div>
+        <div class="dash-big">$<span id="mrr-current">0</span><span class="dash-of">/ $<span id="mrr-goal">300</span></span></div>
+        <div class="bar"><div class="bar-fill bar-fill-mrr" id="mrr-bar"></div></div>
+        <div class="dash-foot" id="mrr-foot"></div>
+      </div>
+      <div class="dash-card dash-focus">
+        <div class="dash-label">Vertical of focus</div>
+        <div class="dash-focus-value" id="focus-value">all verticals</div>
+        <div class="dash-foot"><a href="#settings" class="link">change in settings</a></div>
+      </div>
+    </div>
+
+    <div class="queue-head">
+      <h2>The Queue</h2>
+      <button class="btn btn-primary" id="btn-quick-add">+ Quick add lead</button>
+    </div>
+    <div id="queue"></div>
+  </section>
+
+  <!-- ============ PIPELINE ============ -->
+  <section class="screen" id="screen-pipeline">
+    <div class="screen-head">
+      <h2>Pipeline</h2>
+      <div class="screen-head-tools">
+        <select id="pipeline-vertical-filter" class="input select">
+          <option value="">All verticals</option>
+        </select>
+        <button class="btn" id="btn-import">Import CSV</button>
+        <button class="btn btn-primary" id="btn-add-pipeline">+ Add lead</button>
+      </div>
+    </div>
+    <div id="pipeline-groups"></div>
+  </section>
+
+  <!-- ============ STATS ============ -->
+  <section class="screen" id="screen-stats">
+    <div class="screen-head"><h2>Stats</h2></div>
+    <div class="stats-cards" id="stats-cards"></div>
+    <div class="stats-cols">
+      <div class="panel">
+        <h3 class="panel-title">Funnel</h3>
+        <div id="funnel"></div>
+      </div>
+      <div class="panel">
+        <h3 class="panel-title">Reply rate by vertical</h3>
+        <table class="table" id="vertical-table">
+          <thead><tr><th>Vertical</th><th class="num">Sends</th><th class="num">Replies</th><th class="num">Reply rate</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section class="screen" id="screen-settings">
+    <div class="screen-head"><h2>Settings</h2></div>
+    <div class="settings-grid">
+      <div class="panel">
+        <h3 class="panel-title">The numbers</h3>
+        <label class="field"><span>Daily target (actions/day)</span>
+          <input type="number" min="1" id="set-daily-target" class="input"></label>
+        <label class="field"><span>Vertical of the week</span>
+          <input type="text" id="set-vertical-focus" class="input" list="vertical-list" placeholder="blank = all verticals"></label>
+        <label class="field"><span>My price ($/mo)</span>
+          <input type="number" min="0" step="1" id="set-price" class="input" placeholder="used for won deals with no value set"></label>
+        <label class="field"><span>MRR goal ($)</span>
+          <input type="number" min="1" id="set-mrr-goal" class="input"></label>
+        <button class="btn btn-primary" id="btn-save-settings">Save</button>
+        <span class="save-note" id="settings-saved"></span>
+      </div>
+      <div class="panel">
+        <h3 class="panel-title">Copy template</h3>
+        <p class="hint">Placeholders: {brand} {pain_signal} {competitor_1} {competitor_2} {competitor_3} {personalization_note}. Empty fields are skipped gracefully.</p>
+        <textarea id="set-template" class="input textarea" rows="8" spellcheck="false"></textarea>
+        <button class="btn" id="btn-reset-template">Reset to default</button>
+      </div>
+      <div class="panel panel-wide">
+        <h3 class="panel-title">Competitor presets per vertical</h3>
+        <p class="hint">These pre-fill competitor_1/2/3 when you add a lead in that vertical.</p>
+        <div id="presets-rows"></div>
+        <button class="btn" id="btn-add-preset">+ Add vertical preset</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ============ LEAD MODAL ============ -->
+<dialog id="lead-modal" class="modal">
+  <form id="lead-form" method="dialog">
+    <div class="modal-head">
+      <h3 id="lead-modal-title">Quick add lead</h3>
+      <button type="button" class="btn btn-ghost" id="btn-close-modal">✕</button>
+    </div>
+    <div class="form-grid">
+      <label class="field req"><span>Brand</span><input class="input" name="brand" required autocomplete="off"></label>
+      <label class="field req"><span>Vertical</span><input class="input" name="vertical" list="vertical-list" required autocomplete="off" placeholder="fashion, supplements, pet…"></label>
+    </div>
+    <details id="lead-more">
+      <summary class="mono">more fields — enrich now or later</summary>
+      <div class="form-grid">
+        <label class="field"><span>URL / domain</span><input class="input" name="url"></label>
+        <label class="field"><span>Founder name</span><input class="input" name="founder_name"></label>
+        <label class="field"><span>Contact (email / LinkedIn)</span><input class="input" name="contact"></label>
+        <label class="field"><span>Size estimate</span><input class="input" name="size_estimate"></label>
+        <label class="field"><span>Source</span><input class="input" name="source"></label>
+        <label class="field"><span>Deal value ($/mo)</span><input class="input" name="deal_value_mo" type="number" min="0" step="1"></label>
+        <label class="field"><span>Competitor 1</span><input class="input" name="competitor_1"></label>
+        <label class="field"><span>Competitor 2</span><input class="input" name="competitor_2"></label>
+        <label class="field"><span>Competitor 3</span><input class="input" name="competitor_3"></label>
+        <label class="field span2"><span>Pain signal (one line: why they'd care)</span><input class="input" name="pain_signal"></label>
+        <label class="field span2"><span>Personalization note (specific hook)</span><input class="input" name="personalization_note"></label>
+        <label class="field span2"><span>Notes</span><textarea class="input textarea" name="notes" rows="2"></textarea></label>
+      </div>
+      <div class="form-grid edit-only" id="lead-status-fields">
+        <label class="field"><span>Status</span><select class="input select" name="status"></select></label>
+        <label class="field"><span>Monitoring started</span><input class="input" name="monitoring_started_at" type="date"></label>
+        <label class="field"><span>Sent at</span><input class="input" name="sent_at" type="date"></label>
+        <label class="field"><span>Follow-up due</span><input class="input" name="follow_up_due_at" type="date"></label>
+        <label class="field"><span>Replied at</span><input class="input" name="replied_at" type="date"></label>
+        <label class="field"><span>Reply sentiment</span>
+          <select class="input select" name="reply_sentiment">
+            <option value="">—</option><option value="positive">positive</option>
+            <option value="neutral">neutral</option><option value="negative">negative</option>
+          </select></label>
+        <label class="field span2"><span>Reply</span><textarea class="input textarea" name="reply" rows="2"></textarea></label>
+      </div>
+    </details>
+    <div class="modal-foot">
+      <button type="button" class="btn btn-danger edit-only" id="btn-delete-lead">Delete</button>
+      <span class="spacer"></span>
+      <button type="submit" class="btn btn-primary" id="btn-save-lead">Add lead</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ REPLY MODAL ============ -->
+<dialog id="reply-modal" class="modal modal-sm">
+  <form id="reply-form" method="dialog">
+    <div class="modal-head"><h3 id="reply-modal-title">Log reply</h3>
+      <button type="button" class="btn btn-ghost" id="btn-close-reply">✕</button></div>
+    <label class="field"><span>What did they say?</span>
+      <textarea class="input textarea" name="reply" rows="3"></textarea></label>
+    <label class="field"><span>Sentiment</span>
+      <select class="input select" name="reply_sentiment">
+        <option value="positive">positive</option>
+        <option value="neutral" selected>neutral</option>
+        <option value="negative">negative</option>
+      </select></label>
+    <div class="modal-foot"><span class="spacer"></span>
+      <button type="submit" class="btn btn-primary">Log reply</button></div>
+  </form>
+</dialog>
+
+<!-- ============ IMPORT MODAL ============ -->
+<dialog id="import-modal" class="modal">
+  <form id="import-form" method="dialog">
+    <div class="modal-head"><h3>Import CSV</h3>
+      <button type="button" class="btn btn-ghost" id="btn-close-import">✕</button></div>
+    <p class="hint">Header row required. Columns: <span class="mono">brand, domain, vertical, size_estimate, source</span>. Records import as status = new.</p>
+    <label class="field"><span>Choose file</span><input type="file" id="import-file" accept=".csv,text/csv" class="input"></label>
+    <label class="field"><span>…or paste CSV</span>
+      <textarea class="input textarea mono" id="import-text" rows="8" spellcheck="false" placeholder="brand,domain,vertical,size_estimate,source&#10;Acme Pet Co,acmepet.com,pet,small,shopify app store"></textarea></label>
+    <div class="modal-foot"><span class="spacer"></span>
+      <button type="submit" class="btn btn-primary">Import</button></div>
+  </form>
+</dialog>
+
+<datalist id="vertical-list"></datalist>
+<div id="toast" class="toast" role="status"></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
