@@ -784,6 +784,18 @@ function init() {
   $("#btn-add-preset").addEventListener("click", () => {
     $("#presets-rows").insertAdjacentHTML("beforeend", presetRowHTML());
   });
+  $("#btn-dedupe").addEventListener("click", async () => {
+    const btn = $("#btn-dedupe");
+    btn.disabled = true;
+    try {
+      const res = await api("/api/dedupe", { method: "POST" });
+      const msg = res.removed === 0 ? "no duplicates found" : `removed ${res.removed} duplicate${res.removed === 1 ? "" : "s"}`;
+      $("#dedupe-result").textContent = msg;
+      setTimeout(() => ($("#dedupe-result").textContent = ""), 3000);
+    } finally {
+      btn.disabled = false;
+    }
+  });
   $("#btn-add-template").addEventListener("click", () => {
     $("#tpl-rows").insertAdjacentHTML("beforeend", tplRowHTML());
   });
