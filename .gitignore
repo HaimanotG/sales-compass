@@ -5,3 +5,4 @@ compass.db-*
 .playwright-mcp/
 *.log
 .DS_Store
+*.local
