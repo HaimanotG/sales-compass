@@ -144,23 +144,36 @@ function buildQueue() {
       .sort((a, b) => String(a.trial_started_at || "").localeCompare(String(b.trial_started_at || ""))),
   ];
 
+  // change-detected: pre-send leads whose competitor moved in the last week (synced from
+  // Beaconmon). Sits just below Hot — a fresh change is the trigger to fire the first email.
+  const changeCutoff = addDays(today, -7);
+  const tierChange = leads
+    .filter((l) =>
+      PRE_SEND.includes(l.status) &&
+      l.latest_change_detected_at &&
+      String(l.latest_change_detected_at).slice(0, 10) >= changeCutoff
+    )
+    .sort((a, b) => String(b.latest_change_detected_at).localeCompare(String(a.latest_change_detected_at)));
+  const changeIds = new Set(tierChange.map((l) => l.id));
+
   const tier1 = leads
     .filter((l) => ["sent", "follow_up_1", "follow_up_2"].includes(l.status) && l.follow_up_due_at && l.follow_up_due_at <= today)
     .sort((a, b) => a.follow_up_due_at.localeCompare(b.follow_up_due_at));
 
   const tier2 = leads
-    .filter((l) => l.status === "monitoring" && l.monitoring_started_at && l.monitoring_started_at <= ripeCutoff)
+    .filter((l) => l.status === "monitoring" && !changeIds.has(l.id) && l.monitoring_started_at && l.monitoring_started_at <= ripeCutoff)
     .sort((a, b) => a.monitoring_started_at.localeCompare(b.monitoring_started_at));
 
   const tier3 = leads
     .filter((l) =>
       ["new", "enriched"].includes(l.status) &&
+      !changeIds.has(l.id) &&
       String(l.pain_signal || "").trim() !== "" &&
       (!settings.vertical_focus || l.vertical === settings.vertical_focus.toLowerCase())
     )
     .sort((a, b) => a.created_at.localeCompare(b.created_at));
 
-  return { tier0, tier1, tier2, tier3 };
+  return { tier0, tierChange, tier1, tier2, tier3 };
 }
 
 function compsHTML(lead) {
@@ -223,6 +236,12 @@ function leadCardHTML(lead, tier) {
         <button class="btn btn-primary" data-act="follow_up" data-id="${id}">${label}</button>
         <button class="btn" data-act="reply" data-id="${id}">↩ Log reply</button>`;
     }
+  } else if (tier === "change") {
+    const when = lead.latest_change_detected_at ? String(lead.latest_change_detected_at).slice(0, 10) : today;
+    const days = daysBetween(when, today);
+    const ago = days <= 0 ? "today" : `${days}d ago`;
+    meta = `<span class="lead-due" style="color:var(--beacon)">competitor change ${ago} — reach out now</span>`;
+    buttons = `<button class="btn btn-primary" data-act="sent" data-id="${id}">→ Mark sent</button>`;
   } else {
     if (tier === 2) {
       const days = daysBetween(lead.monitoring_started_at, today);
@@ -238,14 +257,19 @@ function leadCardHTML(lead, tier) {
     : `<div class="lead-pain ${pain ? "" : "empty"}">${pain ? esc(pain) : "no pain signal yet — click brand to enrich"}</div>`;
   const emailBtn = isEmail(lead.contact)
     ? `<button class="btn btn-ghost" data-act="email" data-id="${id}">✉ Email</button>` : "";
+  const change = String(lead.latest_competitor_change || "").trim();
+  const changeHTML = change
+    ? `<div class="lead-change">⚡ ${esc(change)}</div>`
+    : "";
   return `
-  <div class="lead-card ${overdue ? "overdue" : ""}">
+  <div class="lead-card ${overdue ? "overdue" : ""} ${tier === "change" ? "lead-card-change" : ""}">
     <div class="lead-top">
       <span class="lead-brand" data-edit="${id}">${esc(lead.brand)}</span>
       <span class="lead-vertical">${esc(lead.vertical)}</span>
       ${meta}
     </div>
     ${note}
+    ${changeHTML}
     ${compsHTML(lead)}
     <div class="lead-actions">
       ${buttons}
@@ -262,15 +286,16 @@ function toDate(iso) {
 }
 
 function renderQueue() {
-  const { tier0, tier1, tier2, tier3 } = buildQueue();
+  const { tier0, tierChange, tier1, tier2, tier3 } = buildQueue();
   const root = $("#queue");
   const tiers = [
     { n: "★", cls: 0, title: "Hot — replies & trials, close these first", items: tier0 },
+    { n: "⚡", cls: "change", title: "Competitor change detected — strike while it's fresh", items: tierChange },
     { n: 1, cls: 1, title: "Follow-ups due", items: tier1, empty: "No follow-ups due. The inbox owes you nothing." },
     { n: 2, cls: 2, title: "Monitoring ripe — enough demo data, reach out", items: tier2, empty: "Nothing ripe yet. Beacons still gathering." },
     { n: 3, cls: 3, title: state.settings.vertical_focus ? `Fresh leads · ${esc(state.settings.vertical_focus)}` : "Fresh leads · all verticals", items: tier3, empty: "No fresh leads with a pain signal. Add some or enrich what's in the pipeline." },
   ];
-  const total = tier0.length + tier1.length + tier2.length + tier3.length;
+  const total = tier0.length + tierChange.length + tier1.length + tier2.length + tier3.length;
   if (!total) {
     root.innerHTML = `<div class="queue-empty">
       <div class="big">Queue clear.</div>
@@ -582,6 +607,12 @@ function openLeadModal(lead = null) {
       el.value = lead[el.name] ?? "";
     }
   }
+  // "unverified" badge: resolver-seeded domains awaiting the operator's confirm
+  const badge = $("#comp-url-badge");
+  if (badge) {
+    const hasUrls = lead && [lead.competitor_1_url, lead.competitor_2_url, lead.competitor_3_url].some((u) => u && String(u).trim());
+    badge.hidden = !(lead && hasUrls && Number(lead.competitor_urls_verified) === 0);
+  }
   $("#lead-modal").showModal();
   form.elements.brand.focus();
 }
@@ -594,6 +625,11 @@ async function submitLeadForm(e) {
     if (!el.name) continue;
     if (!editingId && ["status", "monitoring_started_at", "sent_at", "follow_up_due_at", "replied_at", "trial_started_at", "reply", "reply_sentiment"].includes(el.name)) continue;
     body[el.name] = el.value;
+  }
+  // Saving an edited lead that carries competitor domains confirms them (verified -> 1),
+  // which is what graduates the lead into Beaconmon seeding.
+  if (editingId && ["competitor_1_url", "competitor_2_url", "competitor_3_url"].some((k) => String(body[k] || "").trim())) {
+    body.competitor_urls_verified = 1;
   }
   try {
     if (editingId) {

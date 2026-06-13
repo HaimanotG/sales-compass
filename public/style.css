@@ -217,6 +217,24 @@ h2 {
   border: 1px solid var(--line);
 }
 .lead-comps .watch { color: var(--beacon-deep); letter-spacing: 0.08em; }
+
+/* Competitor-change tier (synced from Beaconmon) */
+.tier-change .tier-num {
+  border-color: var(--beacon); color: var(--beacon);
+  box-shadow: 0 0 10px rgba(255, 178, 36, 0.3);
+}
+.tier-change .lead-card, .lead-card-change { border-left: 3px solid var(--beacon); }
+.tier-change .lead-due { color: var(--beacon); }
+.lead-change {
+  color: var(--beacon); font-size: 13.5px; font-weight: 600; margin-top: 2px;
+}
+.badge-unverified {
+  font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--signal-red);
+  border: 1px solid rgba(255, 93, 73, 0.4); border-radius: 4px; padding: 1px 6px;
+  margin-left: 8px; white-space: nowrap;
+}
+.comp-url-head { align-self: end; color: var(--fog); font-size: 13px; }
 .lead-actions {
   grid-row: 1 / span 3; grid-column: 2;
   display: flex; flex-direction: column; gap: 8px; justify-content: center; align-items: stretch;

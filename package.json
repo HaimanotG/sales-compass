@@ -5,9 +5,13 @@
   "type": "module",
   "description": "Single-user sales companion for Beaconmon outreach — daily queue, pipeline, stats.",
   "scripts": {
-    "start": "bun server.js"
+    "start": "bun server.js",
+    "resolve-urls": "bun scripts/resolve-competitor-urls.js",
+    "seed-beaconmon": "bun scripts/seed-beaconmon.js",
+    "sync-events": "bun scripts/sync-events.js"
   },
   "dependencies": {
-    "@libsql/client": "^0.17.3"
+    "@libsql/client": "^0.17.3",
+    "pg": "^8.13.1"
   }
 }
