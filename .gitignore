@@ -1,8 +1,9 @@
-node_modules/
+.claude/
+.DS_Store
+.playwright-mcp/
+.vercel/
+*.local
+*.log
 compass.db
 compass.db-*
-.vercel/
-.playwright-mcp/
-*.log
-.DS_Store
-*.local
+node_modules/
