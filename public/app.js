@@ -70,6 +70,7 @@ function changeParts(lead) {
 
 function renderTemplate(tpl, lead) {
   const ctx = { ...lead, ...changeParts(lead) };
+  ctx.founder_first = String(ctx.founder_name || "").trim().split(/\s+/)[0] || "";
   const get = (k) => String(ctx[k] || "").trim();
   let out = tpl;
   // triple join: {a}, {b} and {c} → join whichever are present
