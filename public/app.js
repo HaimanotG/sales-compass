@@ -87,12 +87,15 @@ function renderTemplate(tpl, lead) {
 }
 
 // named template variants: "default" is the main template, extras live in settings.copy_templates
+// (each extra may carry an optional `subject` used by the Email action).
 function allTemplates() {
   return [{ name: "default", text: state.settings.copy_template }, ...(state.settings.copy_templates || [])];
 }
+function templateObj(name) {
+  return allTemplates().find((t) => t.name === name) || { name: "default", text: state.settings.copy_template };
+}
 function templateText(name) {
-  const t = allTemplates().find((t) => t.name === name);
-  return t ? t.text : state.settings.copy_template;
+  return templateObj(name).text;
 }
 function selectedTemplate(leadId) {
   const sel = $(`select[data-tpl-for="${leadId}"]`);
@@ -121,9 +124,22 @@ async function copyOutreach(lead) {
   }
 }
 
+// Short, internal-looking subject. If the chosen variant defines one, use it (run
+// through the same {field} substitution as the body). Otherwise fall back to the
+// competitor_1 domain plus " update" (e.g. "petsafe.com update"), never a markety line.
+function outreachSubject(lead, tpl) {
+  if (tpl && tpl.subject && tpl.subject.trim()) {
+    const s = renderTemplate(tpl.subject, lead).trim();
+    if (s) return s;
+  }
+  const comp = String(lead.competitor_1_url || lead.competitor_1 || "").trim().toLowerCase();
+  return comp ? `${comp} update` : "quick one";
+}
+
 function emailOutreach(lead) {
-  const text = renderTemplate(templateText(selectedTemplate(lead.id)), lead);
-  const subject = `Competitor price moves in ${lead.vertical}`;
+  const tpl = templateObj(selectedTemplate(lead.id));
+  const text = renderTemplate(tpl.text, lead);
+  const subject = outreachSubject(lead, tpl);
   location.href = `mailto:${encodeURIComponent(lead.contact.trim())}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
 }
 
@@ -516,14 +532,15 @@ function renderSettings() {
 }
 
 function renderTemplateRows(templates) {
-  $("#tpl-rows").innerHTML = (templates || []).map((t) => tplRowHTML(t.name, t.text)).join("");
+  $("#tpl-rows").innerHTML = (templates || []).map((t) => tplRowHTML(t.name, t.text, t.subject)).join("");
 }
-function tplRowHTML(name = "", text = "") {
+function tplRowHTML(name = "", text = "", subject = "") {
   return `<div class="tpl-row">
     <div class="tpl-row-head">
       <input class="input t-name" placeholder="variant name (e.g. blunt)" value="${esc(name)}">
       <button type="button" class="btn btn-ghost t-remove" title="remove">✕</button>
     </div>
+    <input class="input t-subject" placeholder="email subject (optional, supports {fields})" value="${esc(subject || "")}">
     <textarea class="input textarea t-text" rows="4" spellcheck="false" placeholder="Alternate outreach copy — same placeholders as the main template.">${esc(text)}</textarea>
   </div>`;
 }
@@ -535,7 +552,11 @@ function collectTemplates() {
     const text = $(".t-text", row).value;
     if (!name || !text.trim() || seen.has(name)) continue;
     seen.add(name);
-    out.push({ name, text });
+    const subjEl = $(".t-subject", row);
+    const subject = subjEl ? subjEl.value.trim() : "";
+    const tpl = { name, text };
+    if (subject) tpl.subject = subject;
+    out.push(tpl);
   }
   return out;
 }
@@ -692,7 +713,7 @@ async function doTransition(id, action) {
     await api(`/api/leads/${id}/transition`, { method: "POST", body });
     const verb = action === "sent"
       ? "Marked sent — follow-up queued in 3 days"
-      : wasFu2 ? "Breakup sent — if no reply in 5 days, call it" : "Follow-up logged";
+      : wasFu2 ? "Breakup sent — if no reply in 21 days, call it" : "Follow-up logged";
     toast(verb);
     renderAll();
   } catch (err) {
