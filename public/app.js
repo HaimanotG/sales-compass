@@ -57,8 +57,20 @@ function toast(msg, isErr = false) {
 }
 
 // ---------- copy template ----------
+// latest_competitor_change is stored as "<mover domain>: <change detail>". Split it
+// into the two render-only keys the signal templates need, so the same hook can name
+// the competitor that actually moved (which is rarely competitor_1). No separator
+// means the whole string is the detail and there is no mover domain to name.
+function changeParts(lead) {
+  const raw = String((lead && lead.latest_competitor_change) || "").trim();
+  const i = raw.indexOf(": ");
+  if (i === -1) return { change_competitor: "", change_detail: raw };
+  return { change_competitor: raw.slice(0, i).trim(), change_detail: raw.slice(i + 2).trim() };
+}
+
 function renderTemplate(tpl, lead) {
-  const get = (k) => String(lead[k] || "").trim();
+  const ctx = { ...lead, ...changeParts(lead) };
+  const get = (k) => String(ctx[k] || "").trim();
   let out = tpl;
   // triple join: {a}, {b} and {c} → join whichever are present
   out = out.replace(/\{(\w+)\}\s*,\s*\{(\w+)\}\s*(?:,\s*)?(?:and\s*)?\{(\w+)\}/g, (m, a, b, c) => {
@@ -127,10 +139,18 @@ async function copyOutreach(lead) {
 // Short, internal-looking subject. If the chosen variant defines one, use it (run
 // through the same {field} substitution as the body). Otherwise fall back to the
 // competitor_1 domain plus " update" (e.g. "petsafe.com update"), never a markety line.
+// The signal-variant subjects are built around {change_competitor}; when that derived
+// key is empty (no separator in latest_competitor_change) the substitution would leave
+// a bare leftover like "pricing", so we treat a referenced-but-empty {change_competitor}
+// as no usable subject and drop to the fallback.
 function outreachSubject(lead, tpl) {
   if (tpl && tpl.subject && tpl.subject.trim()) {
-    const s = renderTemplate(tpl.subject, lead).trim();
-    if (s) return s;
+    const refsChangeCompetitor = /\{change_competitor\}/.test(tpl.subject);
+    const hasChangeCompetitor = !!changeParts(lead).change_competitor;
+    if (!refsChangeCompetitor || hasChangeCompetitor) {
+      const s = renderTemplate(tpl.subject, lead).trim();
+      if (s) return s;
+    }
   }
   const comp = String(lead.competitor_1_url || lead.competitor_1 || "").trim().toLowerCase();
   return comp ? `${comp} update` : "quick one";
