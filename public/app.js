@@ -764,7 +764,7 @@ async function submitImport(e) {
     const res = await api("/api/import", { method: "POST", body: { csv } });
     $("#import-modal").close();
     $("#import-form").reset();
-    toast(`Imported ${res.imported} lead${res.imported === 1 ? "" : "s"}${res.duplicates ? ` · ${res.duplicates} duplicate${res.duplicates === 1 ? "" : "s"} skipped` : ""}${res.skipped ? ` · ${res.skipped} bad row${res.skipped === 1 ? "" : "s"}` : ""}`);
+    toast(`Imported ${res.imported} lead${res.imported === 1 ? "" : "s"}${res.updated ? ` · ${res.updated} updated` : ""}${res.duplicates ? ` · ${res.duplicates} duplicate${res.duplicates === 1 ? "" : "s"} skipped` : ""}${res.skipped ? ` · ${res.skipped} bad row${res.skipped === 1 ? "" : "s"}` : ""}`);
     renderAll();
   } catch (err) {
     toast(err.message, true);
