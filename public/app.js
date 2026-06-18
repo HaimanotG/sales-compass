@@ -70,7 +70,7 @@ function changeParts(lead) {
 
 function renderTemplate(tpl, lead) {
   const ctx = { ...lead, ...changeParts(lead) };
-  ctx.founder_first = String(ctx.founder_name || "").trim().split(/\s+/)[0] || "";
+  ctx.founder_first = String(ctx.founder_name || "").trim().split(/\s+/)[0] || "there";
   const get = (k) => String(ctx[k] || "").trim();
   let out = tpl;
   // triple join: {a}, {b} and {c} → join whichever are present
@@ -856,7 +856,7 @@ function init() {
   $("#btn-save-settings").addEventListener("click", saveSettings);
   $("#set-template").addEventListener("blur", saveSettings);
   $("#btn-reset-template").addEventListener("click", () => {
-    $("#set-template").value = "Hi — I noticed {pain_signal}. I've been watching {competitor_1} and {competitor_2} for the last few days and {personalization_note}. I run a tool that tracks competitor price/promo changes for brands like {brand} — want me to send over what I've found?";
+    $("#set-template").value = "Hi {founder_first},\n\nI'm the founder of Beaconmon. I've been monitoring {competitor_1} and {competitor_2} and have a week's worth of changes—stockouts, pricing moves, and new launches.\n\nThought it might be useful before I offered this to anyone else in the space.\n\nHappy to send it over. No pitch, just the data.\n\nHaimanot";
     saveSettings();
   });
   $("#btn-add-preset").addEventListener("click", () => {

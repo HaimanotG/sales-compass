@@ -8,7 +8,8 @@
     "start": "bun server.js",
     "resolve-urls": "bun scripts/resolve-competitor-urls.js",
     "seed-beaconmon": "bun scripts/seed-beaconmon.js",
-    "sync-events": "bun scripts/sync-events.js"
+    "sync-events": "bun scripts/sync-events.js",
+    "full-report": "bun scripts/full-report.js"
   },
   "dependencies": {
     "@libsql/client": "^0.17.3",

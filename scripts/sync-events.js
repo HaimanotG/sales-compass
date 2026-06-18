@@ -6,6 +6,7 @@
 //
 //   BEACONMON_DATABASE_URL=postgres://...  BEACONMON_TEAM_ID=...  bun scripts/sync-events.js
 import { all, run, ready } from "../lib/db.js";
+import { USABLE_EVENT_SQL, normHost, summarize } from "../lib/competitor-events.js";
 import pg from "pg";
 
 const { Pool } = pg;
@@ -18,52 +19,7 @@ if (!DATABASE_URL || !TEAM_ID) {
 }
 
 const SLOTS = [1, 2, 3];
-
-function normHost(s) {
-  return String(s || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
-    .replace(/\/.*$/, "")
-    .replace(/:\d+$/, "");
-}
-
-function money(v, currency) {
-  if (v == null || v === "") return "";
-  const n = Number(v);
-  const amount = Number.isFinite(n) ? n.toFixed(2) : String(v);
-  return currency && currency !== "USD" ? `${amount} ${currency}` : `$${amount}`;
-}
-
-// One-line human summary from a competitor_events row. Page-check events (the only kind our
-// not_applicable single-page competitors produce) carry diffSummary when AI is on, else null.
-function summarize(type, payload, domain) {
-  const p = payload || {};
-  switch (type) {
-    case "price_changed":
-      return `${domain}: price ${money(p.oldPrice, p.currency)} -> ${money(p.newPrice, p.currency)}`.trim();
-    case "promo_detected":
-    case "sale_started":
-      return p.diffSummary ? `${domain}: ${p.diffSummary}` : `${domain}: promo / pricing change detected`;
-    case "sale_ended":
-      return `${domain}: sale ended`;
-    case "product_added":
-      return p.title ? `${domain}: new product — ${p.title}` : `${domain}: new product added`;
-    case "product_removed":
-      return p.title ? `${domain}: product removed — ${p.title}` : `${domain}: product removed`;
-    case "out_of_stock":
-      return p.productHandle ? `${domain}: out of stock — ${p.productHandle}` : `${domain}: product out of stock`;
-    case "back_in_stock":
-      return p.productHandle ? `${domain}: back in stock — ${p.productHandle}` : `${domain}: product back in stock`;
-    case "stock_changed":
-      return `${domain}: stock changed`;
-    case "site_changed":
-      return p.diffSummary ? `${domain}: ${p.diffSummary}` : `${domain}: content changed`;
-    default:
-      return `${domain}: ${String(type).replace(/_/g, " ")}`;
-  }
-}
+const DRY_RUN = process.argv.includes("--dry-run");
 
 async function main() {
   await ready();
@@ -115,6 +71,7 @@ async function main() {
                 to_char(detected_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS detected_iso
          FROM competitor_events
          WHERE team_id = $1 AND competitor_id = ANY($2::text[]) AND detected_at > $3::timestamp
+           AND ${USABLE_EVENT_SQL}
          ORDER BY detected_at DESC
          LIMIT 1`,
         [TEAM_ID, compIds, watermark]
@@ -125,20 +82,22 @@ async function main() {
       const domain = compIdToDomain.get(ev.competitor_id) || "competitor";
       const summary = summarize(ev.type, ev.payload, domain);
 
-      await run(
-        `UPDATE leads
-         SET latest_competitor_change = ?, latest_change_detected_at = ?, last_event_synced_at = ?
-         WHERE id = ?`,
-        [summary, ev.detected_iso, ev.detected_iso, lead.id]
-      );
+      if (!DRY_RUN) {
+        await run(
+          `UPDATE leads
+           SET latest_competitor_change = ?, latest_change_detected_at = ?, last_event_synced_at = ?
+           WHERE id = ?`,
+          [summary, ev.detected_iso, ev.detected_iso, lead.id]
+        );
+      }
       updated++;
-      console.log(`  ${lead.brand}: ${summary} (${ev.detected_iso})`);
+      console.log(`  ${DRY_RUN ? "[dry] " : ""}${lead.brand}: ${summary} (${ev.detected_iso})`);
     }
   } finally {
     client.release();
     await pool.end();
   }
-  console.log(`Done. Updated ${updated} lead(s).`);
+  console.log(`Done. ${DRY_RUN ? "Would update" : "Updated"} ${updated} lead(s).${DRY_RUN ? " (dry run, no writes)" : ""}`);
 }
 
 main().then(() => process.exit(0)).catch((e) => {
