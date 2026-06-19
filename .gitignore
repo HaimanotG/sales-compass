@@ -11,6 +11,7 @@ node_modules/
 # Outreach and sourcing — sensitive business info, not for public
 outreach-triage.md
 first-batch.md
+outreach/
 sourced-contacts*
 verify-import.mjs
 snapshot-template.md

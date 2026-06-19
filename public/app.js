@@ -646,7 +646,8 @@ function openLeadModal(lead = null) {
   if (lead) {
     for (const el of form.elements) {
       if (!el.name) continue;
-      el.value = lead[el.name] ?? "";
+      if (el.type === "checkbox") el.checked = !!Number(lead[el.name]);
+      else el.value = lead[el.name] ?? "";
     }
   }
   // "unverified" badge: resolver-seeded domains awaiting the operator's confirm
@@ -666,7 +667,7 @@ async function submitLeadForm(e) {
   for (const el of form.elements) {
     if (!el.name) continue;
     if (!editingId && ["status", "monitoring_started_at", "sent_at", "follow_up_due_at", "replied_at", "trial_started_at", "reply", "reply_sentiment"].includes(el.name)) continue;
-    body[el.name] = el.value;
+    body[el.name] = el.type === "checkbox" ? (el.checked ? 1 : 0) : el.value;
   }
   // Saving an edited lead that carries competitor domains confirms them (verified -> 1),
   // which is what graduates the lead into Beaconmon seeding.
